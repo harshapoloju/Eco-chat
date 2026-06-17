@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reservoir — eco-mode chat on Claude</title>
+<style>
+  :root {
+    --basin: #0c2e33;
+    --surface: #edf4f3;
+    --water: #1295a3;
+    --deepwater: #0b5e66;
+    --silt: #5e7a7d;
+    --foam: #ffffff;
+    --line: #d4e2e1;
+    --radius: 14px;
+    --font-display: Avenir Next, Avenir, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font-body);
+    background: var(--surface);
+    color: var(--basin);
+    display: flex; flex-direction: column;
+  }
+
+  header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; padding: 18px 24px 10px; }
+  header h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; letter-spacing: -0.02em; }
+  header p { color: var(--silt); font-size: 0.85rem; }
+
+  .layout {
+    flex: 1; min-height: 0;
+    display: grid; grid-template-columns: 220px 1fr;
+    gap: 20px; padding: 0 24px 20px;
+    max-width: 1060px; width: 100%; margin: 0 auto;
+  }
+
+  .gauge-card {
+    background: var(--foam); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+    align-self: start;
+  }
+  .vessel {
+    position: relative; width: 92px; height: 220px;
+    border: 2px solid var(--basin); border-radius: 10px 10px 26px 26px;
+    overflow: hidden; background: linear-gradient(#fbfdfd, #f1f7f7);
+  }
+  .water {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+    background: linear-gradient(180deg, var(--water), var(--deepwater));
+    transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .water::before {
+    content: ""; position: absolute; top: -7px; left: -20%; width: 140%; height: 12px;
+    background: var(--water); border-radius: 50%; opacity: 0.85;
+    animation: bob 3.2s ease-in-out infinite;
+  }
+  @keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(3px) } }
+  @media (prefers-reduced-motion: reduce) {
+    .water { transition: none; } .water::before { animation: none; }
+  }
+  .gauge-num { font-family: var(--font-display); font-weight: 800; font-size: 1.9rem; letter-spacing: -0.02em; }
+  .gauge-num small { font-size: 0.95rem; font-weight: 600; color: var(--silt); }
+  .gauge-label { font-size: 0.78rem; color: var(--silt); text-align: center; line-height: 1.45; }
+  .gauge-stats {
+    width: 100%; font-family: var(--font-mono); font-size: 0.72rem; color: var(--silt);
+    border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 4px;
+  }
+  .gauge-stats span b { color: var(--basin); font-weight: 500; }
+
+  .chat {
+    display: flex; flex-direction: column; min-height: 0;
+    background: var(--foam); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .chat-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+  }
+  .mode-meta { font-family: var(--font-mono); font-size: 0.72rem; color: var(--silt); }
+
+  .toggle {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: none; border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 12px 6px 8px; cursor: pointer; font: inherit; color: var(--basin);
+  }
+  .toggle:focus-visible { outline: 2px solid var(--water); outline-offset: 2px; }
+  .pill { width: 40px; height: 22px; border-radius: 999px; background: #c8d8d7; position: relative; transition: background 0.2s; }
+  .pill::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; transition: left 0.2s;
+  }
+  .toggle[aria-pressed="true"] .pill { background: var(--water); }
+  .toggle[aria-pressed="true"] .pill::after { left: 21px; }
+  .toggle-label { font-weight: 600; font-size: 0.88rem; }
+
+  .messages { flex: 1; overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 78%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; font-size: 0.93rem; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--basin); color: #f2f8f8; border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .msg .tag { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 0.68rem; color: var(--silt); }
+  .empty { margin: auto; text-align: center; color: var(--silt); font-size: 0.9rem; max-width: 360px; line-height: 1.6; }
+  .empty strong { color: var(--basin); }
+
+  .composer { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  .composer textarea {
+    flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; font: inherit; font-size: 0.93rem; background: var(--surface);
+    min-height: 44px; max-height: 140px;
+  }
+  .composer textarea:focus-visible { outline: 2px solid var(--water); outline-offset: 1px; }
+  .composer button {
+    border: none; border-radius: 10px; padding: 0 20px; font: inherit; font-weight: 600;
+    background: var(--water); color: #fff; cursor: pointer;
+  }
+  .composer button:hover { background: var(--deepwater); }
+  .composer button:disabled { background: #b9cdcc; cursor: default; }
+
+  footer { text-align: center; font-size: 0.72rem; color: var(--silt); padding: 0 24px 16px; line-height: 1.5; }
+
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: 1fr; }
+    .gauge-card { flex-direction: row; padding: 12px; gap: 16px; }
+    .vessel { width: 56px; height: 110px; }
+    .gauge-stats { border-top: none; border-left: 1px solid var(--line); padding: 0 0 0 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Reservoir</h1>
+  <p>Chat with Claude on your own account. Flip eco mode, watch the water you didn't use.</p>
+</header>
+
+<div class="layout">
+  <aside class="gauge-card" aria-label="Estimated savings">
+    <div class="vessel"><div class="water" id="water"></div></div>
+    <div class="gauge-num"><span id="saved-ml">0.0</span> <small>mL</small></div>
+    <div class="gauge-label">estimated cooling water saved this session</div>
+    <div class="gauge-stats">
+      <span>eco replies <b id="stat-eco">0</b></span>
+      <span>tokens used <b id="stat-tokens">0</b></span>
+      <span>output trimmed <b id="stat-cut">–</b></span>
+    </div>
+  </aside>
+
+  <main class="chat">
+    <div class="chat-top">
+      <button class="toggle" id="eco-toggle" aria-pressed="true">
+        <span class="pill" aria-hidden="true"></span>
+        <span class="toggle-label">Eco mode</span>
+      </button>
+      <span class="mode-meta" id="mode-meta">concise replies · less compute</span>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty" id="empty">
+        <strong>Eco mode is on.</strong><br />
+        Every AI reply takes computation, and computation takes energy and cooling water.
+        Eco mode asks Claude for disciplined, concise answers — fewer tokens, less compute.
+        Flip the toggle any time to compare. Runs on your own Claude account; no setup needed.
+      </div>
+    </div>
+
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Ask anything — try pasting a resume to tailor…" aria-label="Message"></textarea>
+      <button id="send">Send</button>
+    </div>
+  </main>
+</div>
+
+<footer>
+  Savings are illustrative estimates: eco replies are compared against the length of a typical
+  unconstrained reply, then converted using public research on per-token energy and datacenter
+  water use — not measurements from Anthropic. The compute reduction from shorter outputs is
+  real; the millilitres are an honest guess at what it means.
+</footer>
+
+<script>
+  // ---- Mode definitions: same model, different output discipline ----
+  const MODES = {
+    eco: {
+      system:
+        "You are running in eco mode: every output token costs energy and cooling water, " +
+        "so answer with maximum concision. No preamble, no recap, no filler, no unnecessary " +
+        "caveats. Prefer short prose. Cover what matters, omit what doesn't. Only elaborate " +
+        "if the user explicitly asks for depth.",
+      meta: "concise replies · less compute",
+    },
+    standard: {
+      system: "You are a helpful assistant.",
+      meta: "standard replies",
+    },
+  };
+
+  // ---- Illustrative footprint model (clearly an estimate) ----
+  // Eco savings = output tokens avoided vs a typical unconstrained reply.
+  // VERBOSITY_RATIO: a typical standard reply runs ~2.5x the length of a
+  // disciplined concise one (illustrative assumption, stated in the footer).
+  const VERBOSITY_RATIO = 2.5;
+  const OUT_FACTOR = 5;          // compute units per output token (mid-size model)
+  const IN_FACTOR = 1.5;         // compute units per input token
+  const WH_PER_UNIT = 0.0006;    // ≈1.5 Wh for a 500-token reply
+  const ML_PER_WH = 1.5;         // ≈1.5 L cooling water per kWh (blended estimate)
+  const GAUGE_MAX_ML = 20;
+
+  const state = { eco: true, history: [], savedMl: 0, ecoReplies: 0, tokens: 0, outActual: 0, outBaseline: 0 };
+
+  const $ = (id) => document.getElementById(id);
+  const messagesEl = $("messages"), inputEl = $("input"), sendEl = $("send");
+
+  $("eco-toggle").addEventListener("click", () => {
+    state.eco = !state.eco;
+    $("eco-toggle").setAttribute("aria-pressed", String(state.eco));
+    $("mode-meta").textContent = MODES[state.eco ? "eco" : "standard"].meta;
+  });
+
+  function addMsg(role, text, tag) {
+    const emptyEl = $("empty");
+    if (emptyEl) emptyEl.remove();
+    const div = document.createElement("div");
+    div.className = "msg " + (role === "user" ? "user" : "bot");
+    div.textContent = text;
+    if (tag) {
+      const t = document.createElement("span");
+      t.className = "tag";
+      t.textContent = tag;
+      div.appendChild(t);
+    }
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  function updateGauge() {
+    $("saved-ml").textContent = state.savedMl.toFixed(1);
+    $("water").style.height = Math.min(100, (state.savedMl / GAUGE_MAX_ML) * 100) + "%";
+    $("stat-eco").textContent = state.ecoReplies;
+    $("stat-tokens").textContent = state.tokens;
+    $("stat-cut").textContent = state.outBaseline > 0
+      ? Math.round((1 - state.outActual / state.outBaseline) * 100) + "%"
+      : "–";
+  }
+
+  const estTokens = (text) => Math.max(1, Math.round(text.length / 4));
+
+  async function callClaude(mode) {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system: MODES[mode].system,
+        messages: state.history.slice(-30),
+      }),
+    });
+    const data = await response.json();
+    if (data?.error) throw new Error(data.error.message || "Request failed.");
+    return data;
+  }
+
+  async function send() {
+    const text = inputEl.value.trim();
+    if (!text || sendEl.disabled) return;
+    inputEl.value = "";
+    addMsg("user", text);
+    state.history.push({ role: "user", content: text });
+
+    sendEl.disabled = true;
+    const pending = addMsg("bot", "…");
+    const mode = state.eco ? "eco" : "standard";
+
+    try {
+      const data = await callClaude(mode);
+      pending.remove();
+
+      const reply = (data.content || [])
+        .map((b) => (b.type === "text" ? b.text : ""))
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+      state.history.push({ role: "assistant", content: reply });
+
+      // Prefer reported usage; fall back to estimating from text length.
+      const inT = data.usage?.input_tokens ?? estTokens(text);
+      const outT = data.usage?.output_tokens ?? estTokens(reply);
+      state.tokens += inT + outT;
+
+      let tag = (inT + outT) + " tokens";
+      if (mode === "eco") {
+        state.ecoReplies += 1;
+        const baselineOut = Math.round(outT * VERBOSITY_RATIO);
+        state.outActual += outT;
+        state.outBaseline += baselineOut;
+        const savedUnits = (baselineOut - outT) * OUT_FACTOR;
+        const savedMl = savedUnits * WH_PER_UNIT * ML_PER_WH;
+        state.savedMl += savedMl;
+        tag += " · ~" + savedMl.toFixed(1) + " mL saved vs a typical reply";
+      } else {
+        state.outActual += outT;
+        state.outBaseline += outT;
+      }
+      addMsg("bot", reply, tag);
+      updateGauge();
+    } catch (err) {
+      pending.remove();
+      addMsg("bot", "Error: " + String(err.message || err) +
+        " — if this keeps happening, make sure you're signed in to claude.ai and try again.");
+    }
+    sendEl.disabled = false;
+    inputEl.focus();
+  }
+
+  sendEl.addEventListener("click", send);
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+</script>
+</body>
+</html>
